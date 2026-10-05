@@ -229,7 +229,9 @@ the reviews and how many threads get resolved (including "and resolve N earlier 
 again that with fixes the PR gets two reviews.
 It is recorded against the current head AND the whole plan (verdict, summary, every kept note with its
 action and wording); a real publish refuses without a matching dry run, so after any change, edit or new
-commit dry-run again. If `uncommitted` is not empty, the dry run was NOT recorded: commit or
+commit dry-run again. The record also holds the earlier threads an Approve may resolve and the fix
+branch and copy: a thread of yours that appears after the dry run is not resolved (the real run reports
+`earlier_threads_skipped`; dry-run again to include it). If `uncommitted` is not empty, the dry run was NOT recorded: commit or
 discard those changes in the copy, then dry-run again. Nothing is sent on a dry run. Then, on `yes` again:
 ```bash
 python3 ~/.claude/skills/pr-review/scripts/review_publish.py <draft.json>

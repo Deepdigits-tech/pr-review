@@ -504,6 +504,64 @@ def test_dry_run_counts_earlier_threads_only_on_approve(env):
     assert out["earlier_threads"] == 0
 
 
+def test_dry_run_records_the_earlier_thread_ids_sorted(env):
+    tmp, gitcalls, mp = env
+    threads = [(910, "alice-dev", False), (900, "alice-dev", False), (901, "someone", False)]
+    path = make_draft(tmp, [note(1)], fix=False)
+    out = dry(path, FakeGitHub(author="carol-dev", extra_threads=threads), mp)
+    assert out["earlier_threads"] == 2
+    assert json.loads(open(path).read())["dry_run"]["earlier_threads"] == ["TH900", "TH910"]
+
+
+def test_dry_run_records_no_earlier_threads_without_approve(env):
+    tmp, gitcalls, mp = env
+    path = make_draft(tmp, [note(1, sev="blocker")], fix=False)
+    dry(path, FakeGitHub(author="carol-dev", extra_threads=[(900, "alice-dev", False)]), mp)
+    assert json.loads(open(path).read())["dry_run"]["earlier_threads"] == []
+
+
+def test_earlier_thread_that_appeared_after_the_dry_run_is_not_resolved(env):
+    tmp, gitcalls, mp = env
+    path = make_draft(tmp, [note(1)], fix=False)
+    dry(path, FakeGitHub(author="carol-dev", extra_threads=[(900, "alice-dev", False)]), mp)
+    later = FakeGitHub(author="carol-dev", extra_threads=[(900, "alice-dev", False), (901, "alice-dev", False)])
+    out = real(path, later, mp)
+    assert resolves(later) == ["TH500", "TH900"]
+    assert out["earlier_threads_skipped"] == 1 and out["verdict"] == "APPROVE"
+
+
+def test_recorded_earlier_thread_that_is_gone_by_the_real_run_is_not_resolved(env):
+    tmp, gitcalls, mp = env
+    path = make_draft(tmp, [note(1)], fix=False)
+    dry(path, FakeGitHub(author="carol-dev", extra_threads=[(900, "alice-dev", False)]), mp)
+    later = FakeGitHub(author="carol-dev", extra_threads=[(900, "alice-dev", True)])
+    out = real(path, later, mp)
+    assert resolves(later) == ["TH500"] and out["earlier_threads_skipped"] == 0
+
+
+def test_recorded_earlier_threads_are_still_resolved_on_approve_with_fixes(env):
+    tmp, gitcalls, mp = env
+    gh = FakeGitHub(extra_threads=[(900, "alice-dev", False), (901, "alice-dev", False)])
+    out = run(make_draft(tmp, [note(1, action="fix"), note(2)]), gh, mp)
+    assert resolves(gh) == ["TH500", "TH501", "TH900", "TH901"]
+    assert out["earlier_threads_skipped"] == 0
+
+
+def test_record_without_earlier_threads_is_refused(env):
+    tmp, gitcalls, mp = env
+    gh = FakeGitHub(author="carol-dev")
+    path = make_draft(tmp, [note(1)], fix=False)
+    dry(path, gh, mp)
+
+    def strip(dr):
+        dr["dry_run"].pop("earlier_threads")
+
+    _edit(path, strip)
+    with pytest.raises(ReviewError, match="Run review_publish.py --dry-run first"):
+        real(path, gh, mp)
+    assert no_writes(gh, [])
+
+
 # H3: issues turned off
 
 def test_issues_disabled_refuses_before_any_push_or_post(env):
@@ -597,6 +655,29 @@ def test_any_plan_change_after_the_dry_run_refuses_the_real_run(env, change):
     with pytest.raises(ReviewError, match="Run review_publish.py --dry-run first"):
         real(path, gh, mp)
     assert no_writes(gh, gitcalls)
+
+
+@pytest.mark.parametrize("change", [
+    lambda dr: dr["fix"].update(branch="other-branch"),
+    lambda dr: dr["fix"].update(copy_path="/elsewhere/copy"),
+])
+def test_fix_target_change_after_the_dry_run_refuses_the_real_run(env, change):
+    tmp, gitcalls, mp = env
+    gh = FakeGitHub()
+    path = make_draft(tmp, [note(1, action="fix")])
+    dry(path, gh, mp)
+    _edit(path, change)
+    with pytest.raises(ReviewError, match="Run review_publish.py --dry-run first"):
+        real(path, gh, mp)
+    assert no_writes(gh, gitcalls)
+
+
+def test_dry_run_names_the_copy_it_will_remove(env):
+    tmp, gitcalls, mp = env
+    out = dry(make_draft(tmp, [note(1, action="fix")]), FakeGitHub(), mp)
+    assert out["copy_removed_after"] == str(tmp / "copy")
+    out = dry(make_draft(tmp, [note(1)], fix=False), FakeGitHub(author="carol-dev"), mp)
+    assert "copy_removed_after" not in out
 
 
 def test_unchanged_draft_proceeds_and_dry_run_records_a_plan_fingerprint(env):

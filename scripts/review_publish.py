@@ -74,6 +74,13 @@ def _plan_fingerprint(d: dict, verdict: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
+def _fix_target(d: dict, fixes: list[dict]) -> dict | None:
+    """Where the real run pushes and which copy it removes; the dry run records it so the gate binds both."""
+    if not fixes:
+        return None
+    return {"branch": d["fix"]["branch"], "copy_path": d["fix"]["copy_path"]}
+
+
 def _save(p: Path, d: dict) -> None:
     """Write the draft atomically: a crash mid-write must not leave half a file (it holds the resume state)."""
     text = json.dumps(d, indent=2)
@@ -281,7 +288,7 @@ def publish_review(path: str, dry_run: bool) -> dict:
     wanted_notes = [n for n in kept if n["id"] in wanted]
 
     if dry_run:
-        earlier = 0
+        earlier: list[str] = []
         if verdict == "APPROVE":
             this_runs: set[int] = set()
             for key in ("notes_review", "verdict_review"):
@@ -289,10 +296,12 @@ def publish_review(path: str, dry_run: bool) -> dict:
                     got = gh_api(account, f"{base}/pulls/{pr['number']}/reviews/{flow[key]['id']}/comments"
                                           "?per_page=100", slurp=True)
                     this_runs |= {c["id"] for c in got}
-            earlier = len(_earlier_threads(_all_threads(account, pr), account, this_runs, flow["resolved"]))
+            earlier = sorted(_earlier_threads(_all_threads(account, pr), account, this_runs, flow["resolved"]))
         if not dirty:
+            # The real run may resolve only these earlier threads and may push/remove only this fix target.
             d["dry_run"] = {"at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"), "head": gate_head,
-                            "plan": _plan_fingerprint(d, verdict)}
+                            "plan": _plan_fingerprint(d, verdict), "earlier_threads": earlier,
+                            "fix": _fix_target(d, fixes)}
             _save(p, d)
         pinned_kept = sum(1 for n in kept if pinned(n))
         reviews = ([{"event": "COMMENT", "comments": pinned_kept}, {"event": verdict, "comments": 0}] if fixes
@@ -303,9 +312,10 @@ def publish_review(path: str, dry_run: bool) -> dict:
                "issues": [issue_payload(n, pr["number"], pr["url"])["title"] for n in to_issue
                           if str(n["id"]) not in flow["issues"]],
                "reviews": reviews, "resolve": sum(1 for n in wanted_notes if pinned(n)),
-               "earlier_threads": earlier, "uncommitted": dirty}
+               "earlier_threads": len(earlier), "uncommitted": dirty}
         if fixes:
             out["commits"] = commit_lines
+            out["copy_removed_after"] = d["fix"]["copy_path"]
         if warning:
             out["warning"] = warning
         return out
@@ -314,10 +324,14 @@ def publish_review(path: str, dry_run: bool) -> dict:
         raise ReviewError("The fix copy has uncommitted changes: " + "; ".join(dirty)
                           + ". Commit or discard them, then re-run. Nothing was pushed or posted.")
     record = d.get("dry_run") or {}
-    if record.get("head") != gate_head or record.get("plan") != _plan_fingerprint(d, verdict):
+    recorded_earlier = record.get("earlier_threads")
+    if (record.get("head") != gate_head or record.get("plan") != _plan_fingerprint(d, verdict)
+            or record.get("fix") != _fix_target(d, fixes)
+            or not isinstance(recorded_earlier, list) or not all(isinstance(t, str) for t in recorded_earlier)):
         raise ReviewError("Run review_publish.py --dry-run first (and again after any change). "
                           "Nothing was pushed or posted.")
 
+    earlier_skipped = 0
     if fixes and not flow["pushed"]:
         if decision == "push":
             push(d["fix"]["copy_path"], pr["owner"], pr["repo"], d["fix"]["branch"], rerun="review_publish.py")
@@ -387,7 +401,11 @@ def publish_review(path: str, dry_run: bool) -> dict:
 
     if verdict == "APPROVE":
         # The repo needs every thread resolved before merge, including the ones from our earlier rounds.
-        for tid in _earlier_threads(threads, account, {c["id"] for c in posted}, flow["resolved"]):
+        # Only the ones the dry run showed: a thread that appeared since was never seen by the owner.
+        current = _earlier_threads(threads, account, {c["id"] for c in posted}, flow["resolved"])
+        shown = [tid for tid in current if tid in set(recorded_earlier)]
+        earlier_skipped = len(current) - len(shown)
+        for tid in shown:
             gh_api(account, "graphql", method="POST", body={"query": RESOLVE, "variables": {"id": tid}})
             flow["resolved"].append(tid)
             _save(p, d)
@@ -404,7 +422,7 @@ def publish_review(path: str, dry_run: bool) -> dict:
     _save(p, d)
     out = {"verdict": verdict, "pushed": flow["pushed"], "issues": flow["issues"],
            "notes_review": (flow["notes_review"] or {}).get("url"), "verdict_review": flow["verdict_review"]["url"],
-           "resolved": len(flow["resolved"])}
+           "resolved": len(flow["resolved"]), "earlier_threads_skipped": earlier_skipped}
     if fixes:
         # Everything is on GitHub; a copy that can't be removed (already gone, say) is not a failure.
         try:

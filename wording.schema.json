@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["texts"],
+  "properties": {
+    "texts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "text"],
+        "properties": {"id": {"type": "string"}, "text": {"type": "string"}}
+      }
+    }
+  }
+}

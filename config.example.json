@@ -1,0 +1,13 @@
+{
+  "owner_accounts": {
+    "example-org": "alice-dev",
+    "acme-corp": "alice-dev",
+    "alice-work": "alice-work"
+  },
+  "own_accounts": ["alice-dev", "alice-work"],
+  "commit_identities": {
+    "alice-dev": ["Alice Example", "alice@example.com"],
+    "alice-work": ["Alice Example", "alice@work.example.com"]
+  },
+  "fix_allowed_authors": ["bob-dev"]
+}

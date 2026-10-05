@@ -120,11 +120,16 @@ dispute, then agreed), `added` (came from Codex's missed list), `you-decide`, or
 
 ## 4. Sort notes (other people's PRs)
 
-For each kept note propose an `action`:
-- `fix` only when the PR author is an allow-listed teammate (`fix_allowed_authors` in your config; the
-  ctx `author`) **and** the note is small
-  and has one obvious change (you'd make it yourself in a minute).
-- everything else is `leave`. Never `fix` a `you-decide` note. Nobody outside the allow-list gets fixes, whatever the note.
+For each kept note propose an `action`. When the PR author is an allow-listed teammate
+(`fix_allowed_authors` in your config; the ctx `author`), **lean toward fixing**:
+- `fix` by default: any note whose "What to do" is a concrete change in files this PR already touches
+  (a missing check, a missing test, an incomplete condition, a wrong value, a rename) — blockers and
+  should-fix included, not only tiny ones. The fix must stay inside the PR's own scope.
+- `leave` only when the note needs the author's decision: a design or product choice, unclear intent
+  (more than one reasonable fix), a change outside the PR's files or scope, or a large rework.
+- Nits: `fix` when it's a one-liner, otherwise `leave` (they're optional anyway).
+- Never `fix` a `you-decide` note. Nobody outside the allow-list gets fixes, whatever the note.
+On the menu, say in one line why each `leave` note was left, so the owner can flip it with `fix N`.
 
 The verdict follows from the actions: a kept `blocker` that is left means **Request changes**; anything
 less means **Approve**. `draft.py` computes it and prints it on the **Plan:** line.

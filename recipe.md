@@ -19,9 +19,11 @@ Severity:
 - **should-fix** — a real problem, but not dangerous.
 - **nit** — small/style. Keep nits few; skip them entirely on a large PR.
 
-When reviewing a teammate's PR, also decide per note whether it is a **fix** (small, one obvious
-change, you'd make it yourself in a minute) or a **leave** (needs the author's judgement). Only PRs by
-allow-listed teammates (`fix_allowed_authors` in your config) get fixes. A blocker you leave means
+When reviewing a teammate's PR, also decide per note whether it is a **fix** or a **leave**. On PRs by
+allow-listed teammates (`fix_allowed_authors` in your config), lean toward **fix**: any concrete change
+inside the files and scope of the PR (a missing check, test, condition, value) gets fixed, blockers and
+should-fix included. **Leave** only what needs the author's decision: a design choice, unclear intent,
+work outside the PR, or a large rework. Everyone else's PRs get no fixes. A blocker you leave means
 Request changes; anything less still means Approve.
 
 Each note has a short **title** (under 10 words, names the problem) and a body in this layout:
